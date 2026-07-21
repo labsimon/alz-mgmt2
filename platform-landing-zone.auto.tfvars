@@ -86,6 +86,9 @@ custom_replacements = {
     primary_hub_virtual_network_address_space          = "10.0.0.0/22"
     primary_nva_subnet_address_prefix                  = "10.0.0.0/26"
     primary_nva_ip_address                             = "10.0.0.4"
+    primary_fortigate_ilb_ip                           = "10.0.0.5"
+    primary_onprem_prefix_1                            = "172.16.0.0/12"
+    primary_onprem_prefix_2                            = "192.168.0.0/16"
     primary_bastion_subnet_address_prefix              = "10.0.0.64/26"
     primary_gateway_subnet_address_prefix              = "10.0.0.128/27"
     primary_private_dns_resolver_subnet_address_prefix = "10.0.0.160/28"
@@ -305,9 +308,29 @@ hub_virtual_networks = {
       name                          = "$${primary_virtual_network_name}"
       address_space                 = ["$${primary_hub_virtual_network_address_space}"]
       routing_address_space         = ["$${primary_hub_address_space}"]
-      hub_router_ip_address         = "$${primary_nva_ip_address}"
+      hub_router_ip_address         = "$${primary_fortigate_ilb_ip}"
       route_table_name_firewall     = "$${primary_route_table_firewall_name}"
       route_table_name_user_subnets = "$${primary_route_table_user_subnets_name}"
+      route_table_entries_user_subnets = [
+        {
+          name                = "default-via-fortigate-ilb"
+          address_prefix      = "0.0.0.0/0"
+          next_hop_type       = "VirtualAppliance"
+          next_hop_ip_address = "$${primary_fortigate_ilb_ip}"
+        },
+        {
+          name                = "onprem-172-via-fortigate-ilb"
+          address_prefix      = "$${primary_onprem_prefix_1}"
+          next_hop_type       = "VirtualAppliance"
+          next_hop_ip_address = "$${primary_fortigate_ilb_ip}"
+        },
+        {
+          name                = "onprem-192-via-fortigate-ilb"
+          address_prefix      = "$${primary_onprem_prefix_2}"
+          next_hop_type       = "VirtualAppliance"
+          next_hop_ip_address = "$${primary_fortigate_ilb_ip}"
+        }
+      ]
       subnets = {
         nva = {
           name             = "$${primary_subnet_nva_name}"
@@ -375,4 +398,46 @@ enable_telemetry = true
 telemetry_additional_content = {
   deployed_by    = "alz-terraform-accelerator"
   correlation_id = "00000000-0000-0000-0000-000000000000"
+}
+
+fortigate = {
+  enabled                         = true
+  target_hub_key                  = "primary"
+  subnet_key                      = "nva"
+  name_prefix                     = "fgt"
+  vm_size                         = "Standard_D4ds_v5"
+  instances                       = ["01", "02"]
+  admin_username                  = "azureadmin"
+  disable_password_authentication = true
+  admin_ssh_public_key_path       = "~/.ssh/adm-simon.pub"
+
+  accelerated_networking_enabled = true
+  # accelerated_connections_enabled = true
+  # accelerated_connections_sku     = "A1"
+
+  # Verify these values for your selected FortiGate Marketplace plan and region.
+  marketplace_publisher = "fortinet"
+  marketplace_offer     = "fortinet_fortigate-vm_v5"
+  marketplace_sku       = "fortinet_fg-vm_payg_2023"
+  marketplace_plan      = "fortinet_fg-vm_payg_2023"
+  marketplace_version   = "latest"
+
+  create_public_ip             = true
+  accept_marketplace_agreement = true
+
+  ilb_enabled                        = true
+  ilb_name                           = "fgt-primary-ilb"
+  ilb_frontend_ip_configuration_name = "frontend"
+  ilb_backend_address_pool_name      = "backend"
+  ilb_private_ip_address             = "$${primary_fortigate_ilb_ip}"
+  ilb_probe_name                     = "probe-tcp"
+  ilb_probe_port                     = 8008
+  ilb_ha_ports_rule_enabled          = true
+  ilb_ha_ports_rule_name             = "ha-ports"
+
+  # Optional: bootstrap after first boot. Keep disabled unless required.
+  custom_script_extension_enabled   = false
+  custom_script_extension_file_uris = []
+  custom_script_extension_command   = null
+  custom_script_extension_protected = null
 }

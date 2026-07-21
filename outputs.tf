@@ -86,6 +86,36 @@ output "hub_and_spoke_vnet_virtual_network_gateway_local_network_gateway_connect
   value = local.connectivity_hub_and_spoke_vnet_enabled ? module.hub_and_spoke_vnet[0].virtual_network_gateway_local_network_gateway_connection_resource_ids : null
 }
 
+output "fortigate_vm_ids" {
+  value = local.fortigate_enabled ? { for k, v in azurerm_linux_virtual_machine.fortigate : k => v.id } : {}
+}
+
+output "fortigate_vm_private_ip_addresses" {
+  value = local.fortigate_enabled ? {
+    for k, v in azurerm_network_interface.fortigate :
+    k => try(v.ip_configuration[0].private_ip_address, null)
+  } : {}
+}
+
+output "fortigate_vm_public_ip_addresses" {
+  value = local.fortigate_enabled && try(var.fortigate.create_public_ip, true) ? {
+    for k, v in azurerm_public_ip.fortigate :
+    k => v.ip_address
+  } : {}
+}
+
+output "fortigate_subnet_id" {
+  value = local.fortigate_enabled ? data.azurerm_subnet.fortigate[0].id : null
+}
+
+output "fortigate_ilb_id" {
+  value = local.fortigate_enabled && try(var.fortigate.ilb_enabled, true) ? azurerm_lb.fortigate[0].id : null
+}
+
+output "fortigate_ilb_private_ip_address" {
+  value = local.connectivity_hub_and_spoke_vnet_enabled && local.fortigate_enabled && try(var.fortigate.ilb_enabled, true) ? try(azurerm_lb.fortigate[0].frontend_ip_configuration[0].private_ip_address, null) : null
+}
+
 output "hub_and_spoke_vnet_virtual_network_gateway_express_route_circuit_connection_resource_ids" {
   value = local.connectivity_hub_and_spoke_vnet_enabled ? module.hub_and_spoke_vnet[0].virtual_network_gateway_express_route_circuit_connection_resource_ids : null
 }
