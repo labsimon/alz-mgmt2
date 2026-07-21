@@ -21,7 +21,72 @@ on:
         type: string
 
 jobs:
+  ensure_connectivity_public_ip_feature:
+    name: 'Ensure Connectivity Public IP Feature'
+    runs-on: self-hosted
+    environment: alz-mgmt2-apply
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      ARM_CLIENT_ID: "${{ vars.AZURE_CLIENT_ID }}"
+      ARM_SUBSCRIPTION_ID: "${{ vars.AZURE_SUBSCRIPTION_ID }}"
+      ARM_TENANT_ID: "${{ vars.AZURE_TENANT_ID }}"
+      ARM_USE_AZUREAD: true
+      ARM_USE_OIDC: true
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.ARM_CLIENT_ID }}
+          tenant-id: ${{ env.ARM_TENANT_ID }}
+          subscription-id: ${{ env.ARM_SUBSCRIPTION_ID }}
+
+      - name: Ensure BYOIP Feature Registration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          connectivity_subscription_id=$(python3 - <<'PY'
+          import json
+          with open('terraform.tfvars.json', 'r', encoding='utf-8') as f:
+              data = json.load(f)
+          print(data['subscription_ids']['connectivity'])
+          PY
+          )
+
+          feature_name="AllowBringYourOwnPublicIpAddress"
+          feature_state=$(az feature show --namespace Microsoft.Network --name "$feature_name" --subscription "$connectivity_subscription_id" --query properties.state -o tsv 2>/dev/null || echo "NotRegistered")
+          echo "Initial feature state for $feature_name: $feature_state"
+
+          if [[ "$feature_state" != "Registered" ]]; then
+            echo "Requesting feature registration for connectivity subscription $connectivity_subscription_id"
+            az feature register --namespace Microsoft.Network --name "$feature_name" --subscription "$connectivity_subscription_id" >/dev/null
+          fi
+
+          for _ in {1..40}; do
+            feature_state=$(az feature show --namespace Microsoft.Network --name "$feature_name" --subscription "$connectivity_subscription_id" --query properties.state -o tsv 2>/dev/null || echo "NotRegistered")
+            echo "Current feature state: $feature_state"
+            if [[ "$feature_state" == "Registered" ]]; then
+              break
+            fi
+            sleep 15
+          done
+
+          if [[ "$feature_state" != "Registered" ]]; then
+            echo "Feature registration still pending ($feature_state). Re-run this workflow after registration completes."
+            exit 1
+          fi
+
+          az provider register --namespace Microsoft.Network --subscription "$connectivity_subscription_id" >/dev/null
+          provider_state=$(az provider show --namespace Microsoft.Network --subscription "$connectivity_subscription_id" --query registrationState -o tsv)
+          echo "Microsoft.Network provider registration state: $provider_state"
+
   plan_and_apply:
+    needs: ensure_connectivity_public_ip_feature
     uses: labsimon/alz-mgmt2-templates/.github/workflows/cd-template.yaml@main
     name: 'CD'
     permissions:
