@@ -369,7 +369,7 @@ hub_virtual_networks = {
           # Terraform from forcing replacement when tags drift between state and real resource.
           # Example: MCAPS subscriptions auto-inject FirstPartyUsage=/Unprivileged on all public IPs.
           # Uncomment and set if your subscription injects tags:
-          # FirstPartyUsage = "/Unprivileged"
+          FirstPartyUsage = "/Unprivileged"
         }
       }
     }
