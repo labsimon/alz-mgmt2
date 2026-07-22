@@ -1,0 +1,180 @@
+{
+  "type": "Microsoft.Authorization/policyDefinitions",
+  "apiVersion": "2021-06-01",
+  "name": "Deploy-Spoke-RouteTable-NVA",
+  "properties": {
+    "policyType": "Custom",
+    "mode": "All",
+    "displayName": "Deploy spoke route table forcing egress through FortiGate NVA",
+    "description": "Ensures every spoke subnet that has no route table gets one with a default route (0.0.0.0/0) whose next hop is the FortiGate NVA (ILB frontend IP). This forces all traffic leaving the spoke through the firewall. Well-known platform subnets (e.g. GatewaySubnet, AzureFirewallSubnet, AzureBastionSubnet) are excluded.",
+    "metadata": {
+      "version": "1.0.0",
+      "category": "Network",
+      "source": "deploy-forti"
+    },
+    "parameters": {
+      "effect": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Effect",
+          "description": "Enable or disable the execution of the policy."
+        },
+        "allowedValues": [
+          "DeployIfNotExists",
+          "AuditIfNotExists",
+          "Disabled"
+        ],
+        "defaultValue": "DeployIfNotExists"
+      },
+      "nvaIpAddress": {
+        "type": "String",
+        "metadata": {
+          "displayName": "NVA next hop IP address",
+          "description": "The private IP address of the FortiGate NVA (or its internal load balancer frontend IP) used as the VirtualAppliance next hop."
+        }
+      },
+      "routeTableNamePrefix": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Route table name prefix",
+          "description": "Prefix used to name the deployed spoke route tables."
+        },
+        "defaultValue": "rt-spoke-fgt"
+      },
+      "disableBgpRoutePropagation": {
+        "type": "Boolean",
+        "metadata": {
+          "displayName": "Disable BGP route propagation",
+          "description": "When true, gateway (ER/VPN) learned routes cannot override the default route to the NVA."
+        },
+        "defaultValue": true
+      },
+      "excludedSubnetNames": {
+        "type": "Array",
+        "metadata": {
+          "displayName": "Excluded subnet names",
+          "description": "Subnet names that must not receive the NVA route table (platform / gateway subnets)."
+        },
+        "defaultValue": [
+          "GatewaySubnet",
+          "AzureFirewallSubnet",
+          "AzureFirewallManagementSubnet",
+          "AzureBastionSubnet",
+          "RouteServerSubnet"
+        ]
+      }
+    },
+    "policyRule": {
+      "if": {
+        "allOf": [
+          {
+            "field": "type",
+            "equals": "Microsoft.Network/virtualNetworks/subnets"
+          },
+          {
+            "field": "name",
+            "notIn": "[parameters('excludedSubnetNames')]"
+          }
+        ]
+      },
+      "then": {
+        "effect": "[parameters('effect')]",
+        "details": {
+          "type": "Microsoft.Network/virtualNetworks/subnets",
+          "name": "[field('fullName')]",
+          "roleDefinitionIds": [
+            "/providers/Microsoft.Authorization/roleDefinitions/4d97b98b-1d4f-4787-a291-c67834d212e7"
+          ],
+          "existenceCondition": {
+            "field": "Microsoft.Network/virtualNetworks/subnets/routeTable.id",
+            "exists": "true"
+          },
+          "deployment": {
+            "properties": {
+              "mode": "incremental",
+              "parameters": {
+                "vnetName": {
+                  "value": "[first(split(field('fullName'), '/'))]"
+                },
+                "subnetName": {
+                  "value": "[field('name')]"
+                },
+                "subnetAddressPrefix": {
+                  "value": "[field('Microsoft.Network/virtualNetworks/subnets/addressPrefix')]"
+                },
+                "nvaIpAddress": {
+                  "value": "[parameters('nvaIpAddress')]"
+                },
+                "routeTableName": {
+                  "value": "[concat(parameters('routeTableNamePrefix'), '-', first(split(field('fullName'), '/')), '-', field('name'))]"
+                },
+                "disableBgpRoutePropagation": {
+                  "value": "[parameters('disableBgpRoutePropagation')]"
+                }
+              },
+              "template": {
+                "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                "contentVersion": "1.0.0.0",
+                "parameters": {
+                  "vnetName": {
+                    "type": "string"
+                  },
+                  "subnetName": {
+                    "type": "string"
+                  },
+                  "subnetAddressPrefix": {
+                    "type": "string"
+                  },
+                  "nvaIpAddress": {
+                    "type": "string"
+                  },
+                  "routeTableName": {
+                    "type": "string"
+                  },
+                  "disableBgpRoutePropagation": {
+                    "type": "bool"
+                  }
+                },
+                "resources": [
+                  {
+                    "type": "Microsoft.Network/routeTables",
+                    "apiVersion": "2023-11-01",
+                    "name": "[parameters('routeTableName')]",
+                    "location": "[resourceGroup().location]",
+                    "properties": {
+                      "disableBgpRoutePropagation": "[parameters('disableBgpRoutePropagation')]",
+                      "routes": [
+                        {
+                          "name": "default-to-nva",
+                          "properties": {
+                            "addressPrefix": "0.0.0.0/0",
+                            "nextHopType": "VirtualAppliance",
+                            "nextHopIpAddress": "[parameters('nvaIpAddress')]"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "type": "Microsoft.Network/virtualNetworks/subnets",
+                    "apiVersion": "2023-11-01",
+                    "name": "[concat(parameters('vnetName'), '/', parameters('subnetName'))]",
+                    "dependsOn": [
+                      "[resourceId('Microsoft.Network/routeTables', parameters('routeTableName'))]"
+                    ],
+                    "properties": {
+                      "addressPrefix": "[parameters('subnetAddressPrefix')]",
+                      "routeTable": {
+                        "id": "[resourceId('Microsoft.Network/routeTables', parameters('routeTableName'))]"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

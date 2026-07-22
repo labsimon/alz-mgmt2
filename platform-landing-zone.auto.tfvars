@@ -66,6 +66,10 @@ custom_replacements = {
     # Resource names primary connectivity
     primary_virtual_network_name                                 = "vnet-hub-$${starter_location_01}"
     primary_subnet_nva_name                                      = "subnet-nva-$${starter_location_01}"
+    primary_fgt_external_subnet_name                             = "subnet-fgt-ext-$${starter_location_01}"
+    primary_fgt_internal_subnet_name                             = "subnet-fgt-int-$${starter_location_01}"
+    primary_fgt_hasync_subnet_name                               = "subnet-fgt-hasync-$${starter_location_01}"
+    primary_fgt_hamgmt_subnet_name                               = "subnet-fgt-hamgmt-$${starter_location_01}"
     primary_route_table_firewall_name                            = "rt-hub-fw-$${starter_location_01}"
     primary_route_table_user_subnets_name                        = "rt-hub-std-$${starter_location_01}"
     primary_virtual_network_gateway_express_route_name           = "vgw-hub-er-$${starter_location_01}"
@@ -82,11 +86,17 @@ custom_replacements = {
 
     # IP Ranges Primary
     # Regional Address Space: 10.0.0.0/16
-    primary_hub_address_space                          = "10.0.0.0/16"
-    primary_hub_virtual_network_address_space          = "10.0.0.0/22"
-    primary_nva_subnet_address_prefix                  = "10.0.0.0/26"
-    primary_nva_ip_address                             = "10.0.0.4"
-    primary_fortigate_ilb_ip                           = "10.0.0.5"
+    primary_hub_address_space                 = "10.0.0.0/16"
+    primary_hub_virtual_network_address_space = "10.0.0.0/22"
+    primary_nva_subnet_address_prefix         = "10.0.0.0/26"
+    primary_nva_ip_address                    = "10.0.0.4"
+    # FortiGate A/P ELB-ILB design: four dedicated subnets in 10.0.1.0/24
+    primary_fgt_external_subnet_address_prefix = "10.0.1.0/26"
+    primary_fgt_internal_subnet_address_prefix = "10.0.1.64/26"
+    primary_fgt_hasync_subnet_address_prefix   = "10.0.1.128/26"
+    primary_fgt_hamgmt_subnet_address_prefix   = "10.0.1.192/26"
+    # Internal load balancer frontend IP (spoke egress next hop) in the internal subnet
+    primary_fortigate_ilb_ip                           = "10.0.1.68"
     primary_onprem_prefix_1                            = "172.16.0.0/12"
     primary_onprem_prefix_2                            = "192.168.0.0/16"
     primary_bastion_subnet_address_prefix              = "10.0.0.64/26"
@@ -237,6 +247,17 @@ management_group_settings = {
         }
       }
     }
+    landingzones = {
+      policy_assignments = {
+        # Force all spoke egress through the FortiGate NVA (ILB frontend IP).
+        Deploy-Spoke-RT-NVA = {
+          parameters = {
+            nvaIpAddress = "$${primary_fortigate_ilb_ip}"
+            effect       = "DeployIfNotExists"
+          }
+        }
+      }
+    }
   }
   /*
   # Example of how to add management group role assignments
@@ -332,9 +353,21 @@ hub_virtual_networks = {
         }
       ]
       subnets = {
-        nva = {
-          name             = "$${primary_subnet_nva_name}"
-          address_prefixes = ["$${primary_nva_subnet_address_prefix}"]
+        fgt_external = {
+          name             = "$${primary_fgt_external_subnet_name}"
+          address_prefixes = ["$${primary_fgt_external_subnet_address_prefix}"]
+        }
+        fgt_internal = {
+          name             = "$${primary_fgt_internal_subnet_name}"
+          address_prefixes = ["$${primary_fgt_internal_subnet_address_prefix}"]
+        }
+        fgt_hasync = {
+          name             = "$${primary_fgt_hasync_subnet_name}"
+          address_prefixes = ["$${primary_fgt_hasync_subnet_address_prefix}"]
+        }
+        fgt_hamgmt = {
+          name             = "$${primary_fgt_hamgmt_subnet_name}"
+          address_prefixes = ["$${primary_fgt_hamgmt_subnet_address_prefix}"]
         }
       }
     }
@@ -401,12 +434,17 @@ telemetry_additional_content = {
 }
 
 fortigate = {
-  enabled                         = true
-  target_hub_key                  = "primary"
-  subnet_key                      = "nva"
-  name_prefix                     = "fgt"
-  vm_size                         = "Standard_D4ds_v5"
+  enabled             = true
+  target_hub_key      = "primary"
+  external_subnet_key = "fgt_external"
+  internal_subnet_key = "fgt_internal"
+  hasync_subnet_key   = "fgt_hasync"
+  hamgmt_subnet_key   = "fgt_hamgmt"
+  name_prefix         = "fgt"
+  # 4 NICs require a VM size that supports >= 4 NICs (D8ds_v5 = 4 NICs).
+  vm_size                         = "Standard_D8ds_v5"
   instances                       = ["01", "02"]
+  zones                           = { "01" = "1", "02" = "2" }
   admin_username                  = "azureadmin"
   disable_password_authentication = true
   admin_ssh_public_key_path       = "~/.ssh/adm-simon.pub"
@@ -415,16 +453,24 @@ fortigate = {
   # accelerated_connections_enabled = true
   # accelerated_connections_sku     = "A1"
 
-  # Verify these values for your selected FortiGate Marketplace plan and region.
-  marketplace_publisher = "fortinet"
-  marketplace_offer     = "fortinet_fortigate-vm_v5"
-  marketplace_sku       = "fortinet_fg-vm_payg_2023"
-  marketplace_plan      = "fortinet_fg-vm_payg_2023"
-  marketplace_version   = "latest"
+  # Per-VM management public IP on port4 (HA management).
+  management_create_public_ip  = true
+  availability_zones_public_ip = ["1", "2", "3"]
 
-  create_public_ip             = true
+  # Image / license selection: "byol" (production, Salzgitter) or "payg".
+  # The FortiGate-VM Free Trial runs on the BYOL image (licensed via FortiCloud),
+  # so keep "byol" for the MCAPS free-trial test as well.
+  license_model                = "byol"
   accept_marketplace_agreement = true
+  # Optional explicit overrides (leave unset to use the license_model defaults =
+  # publisher "fortinet", offer "fortinet_fortigate-vm", sku/plan "fortinet_fg-vm_byol_76"):
+  # marketplace_publisher = "fortinet"
+  # marketplace_offer     = "fortinet_fortigate-vm"
+  # marketplace_sku       = "fortinet_fg-vm_byol_76"
+  # marketplace_plan      = "fortinet_fg-vm_byol_76"
+  # marketplace_version   = "latest"
 
+  # Internal load balancer (spoke egress next hop = ilb_private_ip_address).
   ilb_enabled                        = true
   ilb_name                           = "fgt-primary-ilb"
   ilb_frontend_ip_configuration_name = "frontend"
@@ -434,6 +480,17 @@ fortigate = {
   ilb_probe_port                     = 8008
   ilb_ha_ports_rule_enabled          = true
   ilb_ha_ports_rule_name             = "ha-ports"
+
+  # External (public) load balancer for north-south traffic.
+  elb_enabled                        = true
+  elb_name                           = "fgt-primary-elb"
+  elb_frontend_ip_configuration_name = "frontend"
+  elb_backend_address_pool_name      = "backend"
+  elb_public_ip_name                 = "fgt-primary-elb-pip"
+  elb_probe_name                     = "probe-tcp"
+  elb_probe_port                     = 8008
+  elb_outbound_rule_enabled          = true
+  elb_outbound_rule_name             = "outbound"
 
   # Optional: bootstrap after first boot. Keep disabled unless required.
   custom_script_extension_enabled   = false

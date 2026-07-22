@@ -1,6 +1,9 @@
 base_archetype: landing_zones
 name: landing_zones_custom
-policy_assignments_to_add: []
+policy_assignments_to_add: [
+  # Force all spoke egress through the FortiGate NVA (see fortigate-readme.md)
+  Deploy-Spoke-RT-NVA,
+]
 policy_assignments_to_remove: [
 # To remove AMA policies, uncomment the following lines:
   # Deploy-MDFC-DefSQL-AMA,
@@ -13,7 +16,10 @@ policy_assignments_to_remove: [
 # To remove the DDOS modify policy, uncomment the following line:
   # Enable-DDoS-VNET,
 ]
-policy_definitions_to_add: []
+policy_definitions_to_add: [
+  # Custom DINE policy that deploys the spoke route table with a default route to the NVA
+  Deploy-Spoke-RouteTable-NVA,
+]
 policy_definitions_to_remove: []
 policy_set_definitions_to_add: []
 policy_set_definitions_to_remove: []

@@ -1,0 +1,31 @@
+{
+  "type": "Microsoft.Authorization/policyAssignments",
+  "apiVersion": "2024-04-01",
+  "name": "Deploy-Spoke-RT-NVA",
+  "dependsOn": [],
+  "identity": {
+    "type": "SystemAssigned"
+  },
+  "location": "uksouth",
+  "properties": {
+    "description": "Forces all traffic leaving spoke subnets through the FortiGate NVA by deploying a route table with a default route (0.0.0.0/0) to the NVA next hop on spoke subnets that do not already have a route table.",
+    "displayName": "Deploy spoke route table forcing egress through FortiGate NVA",
+    "policyDefinitionId": "/providers/Microsoft.Management/managementGroups/placeholder/providers/Microsoft.Authorization/policyDefinitions/Deploy-Spoke-RouteTable-NVA",
+    "enforcementMode": "Default",
+    "nonComplianceMessages": [
+      {
+        "message": "Spoke subnets must route all egress traffic through the FortiGate NVA."
+      }
+    ],
+    "parameters": {
+      "effect": {
+        "value": "DeployIfNotExists"
+      },
+      "nvaIpAddress": {
+        "value": "10.0.0.5"
+      }
+    },
+    "scope": "/providers/Microsoft.Management/managementGroups/placeholder",
+    "notScopes": []
+  }
+}

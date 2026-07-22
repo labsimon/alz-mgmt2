@@ -92,20 +92,20 @@ output "fortigate_vm_ids" {
 
 output "fortigate_vm_private_ip_addresses" {
   value = local.fortigate_enabled ? {
-    for k, v in azurerm_network_interface.fortigate :
+    for k, v in azurerm_network_interface.fgt_internal :
     k => try(v.ip_configuration[0].private_ip_address, null)
   } : {}
 }
 
 output "fortigate_vm_public_ip_addresses" {
-  value = local.fortigate_enabled && try(var.fortigate.create_public_ip, true) ? {
-    for k, v in azurerm_public_ip.fortigate :
+  value = local.fortigate_enabled && try(var.fortigate.management_create_public_ip, true) ? {
+    for k, v in azurerm_public_ip.fgt_mgmt :
     k => v.ip_address
   } : {}
 }
 
 output "fortigate_subnet_id" {
-  value = local.fortigate_enabled ? data.azurerm_subnet.fortigate[0].id : null
+  value = local.fortigate_enabled ? data.azurerm_subnet.fgt_internal[0].id : null
 }
 
 output "fortigate_ilb_id" {
@@ -114,6 +114,14 @@ output "fortigate_ilb_id" {
 
 output "fortigate_ilb_private_ip_address" {
   value = local.connectivity_hub_and_spoke_vnet_enabled && local.fortigate_enabled && try(var.fortigate.ilb_enabled, true) ? try(azurerm_lb.fortigate[0].frontend_ip_configuration[0].private_ip_address, null) : null
+}
+
+output "fortigate_elb_id" {
+  value = local.fortigate_enabled && try(var.fortigate.elb_enabled, true) ? azurerm_lb.fortigate_external[0].id : null
+}
+
+output "fortigate_elb_public_ip_address" {
+  value = local.fortigate_enabled && try(var.fortigate.elb_enabled, true) ? try(azurerm_public_ip.fgt_elb[0].ip_address, null) : null
 }
 
 output "hub_and_spoke_vnet_virtual_network_gateway_express_route_circuit_connection_resource_ids" {
